@@ -35,7 +35,7 @@ def preprocess_data(X: pd.DataFrame, y, model_type: str):
             ]), numerical_cols),
             ('cat', Pipeline([
                 ('imputer', cat_imputer),
-                ('encoder', OneHotEncoder(handle_unknown='ignore', sparse=False))
+                ('encoder', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
             ]), categorical_cols)
         ])
 
@@ -53,4 +53,4 @@ def preprocess_data(X: pd.DataFrame, y, model_type: str):
         raise ValueError(f"Unsupported model type: {model_type}")
 
     X_processed = preprocessor.fit_transform(X)
-    return X_processed, y, preprocessor
+    return X_processed, y.map({' <=50K': 0, ' >50K': 1}), preprocessor

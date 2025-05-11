@@ -24,7 +24,7 @@ def run_evaluation_agent(X_train, X_test, y_train, y_test, model_config, output_
     elif algo == "LogisticRegression":
         model = LogisticRegression(**params)
     elif algo == "XGBoost":
-        model = XGBClassifier(**params, use_label_encoder=False, eval_metric='logloss')
+        model = XGBClassifier(**params, eval_metric='logloss')
     elif algo == "LightGBM":
         model = LGBMClassifier(**params)
     else:
