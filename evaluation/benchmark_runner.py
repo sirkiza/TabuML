@@ -14,7 +14,6 @@ DATASETS = [
             "params": {"n_estimators": 100, "max_depth": 10}
         }
     },
-    # Add more datasets here
 ]
 
 def run_benchmark():

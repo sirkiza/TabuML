@@ -1,47 +1,57 @@
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
-from sklearn.ensemble import RandomForestClassifier
-from xgboost import XGBRegressor
-import joblib
+import time
 import os
+import joblib
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
+from sklearn.metrics import accuracy_score, classification_report
 
-def load_dataset(path="data/adult.csv", target_col="income"):
-    """Loads and preprocesses the dataset."""
-    df = pd.read_csv(path)
+def run_evaluation_agent(X_train, X_test, y_train, y_test, model_config, output_dir="output", dataset_name="dataset"):
+    """
+    Trains and evaluates a model using provided config and data.
+    Saves model and returns results as a dict.
+    """
+    os.makedirs(output_dir, exist_ok=True)
 
-    df = df.dropna()
+    algo = model_config["algorithm"]
+    params = model_config["params"]
 
-    for col in df.select_dtypes(include='object'):
-        df[col] = df[col].astype("category").cat.codes
-
-    X = df.drop(columns=[target_col])
-    y = df[target_col]
-
-    return train_test_split(X, y, test_size=0.2, random_state=42)
-
-def run_evaluation_agent(X_train, X_test, y_train, y_test, config: dict):
-    """Trains and evaluates the selected model."""
-    algo = config["algorithm"]
-    params = config["params"]
-
+    # Choose the model
     if algo == "RandomForest":
         model = RandomForestClassifier(**params)
+    elif algo == "LogisticRegression":
+        model = LogisticRegression(**params)
     elif algo == "XGBoost":
-        model = XGBRegressor(**params)
+        model = XGBClassifier(**params, use_label_encoder=False, eval_metric='logloss')
+    elif algo == "LightGBM":
+        model = LGBMClassifier(**params)
     else:
         raise ValueError(f"Unsupported algorithm: {algo}")
 
+    # Train and time
+    start = time.time()
     model.fit(X_train, y_train)
+    end = time.time()
+    train_time = round(end - start, 4)
+
+    # Predict and evaluate
     y_pred = model.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    report = classification_report(y_test, y_pred, output_dict=True)
 
-    results = {}
+    # Save model
+    model_path = os.path.join(output_dir, f"{dataset_name}_{algo}.pkl")
+    joblib.dump(model, model_path)
 
-    if algo == "RandomForest":
-        results["accuracy"] = accuracy_score(y_test, y_pred)
-        results["report"] = classification_report(y_test, y_pred)
-
-    os.makedirs("output", exist_ok=True)
-    joblib.dump(model, "output/model.pkl")
+    results = {
+        "dataset": dataset_name,
+        "algorithm": algo,
+        "accuracy": acc,
+        "train_time_sec": train_time,
+        "model_path": model_path,
+        "report": report
+    }
 
     return results
