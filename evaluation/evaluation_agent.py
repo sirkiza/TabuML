@@ -4,6 +4,7 @@ from sklearn.metrics import accuracy_score, classification_report
 from sklearn.ensemble import RandomForestClassifier
 from xgboost import XGBRegressor
 import joblib
+import os
 
 def load_dataset(path="data/adult.csv", target_col="income"):
     """Loads and preprocesses the dataset."""
@@ -40,6 +41,7 @@ def run_evaluation_agent(X_train, X_test, y_train, y_test, config: dict):
         results["accuracy"] = accuracy_score(y_test, y_pred)
         results["report"] = classification_report(y_test, y_pred)
 
+    os.makedirs("output", exist_ok=True)
     joblib.dump(model, "output/model.pkl")
 
     return results
