@@ -1,4 +1,5 @@
 import json
+import time
 from openai import OpenAI
 from sklearn.model_selection import train_test_split
 
@@ -108,6 +109,10 @@ def run_model_agent(dataset_path: str, target_column: str, dataset_name: str):
     )
 
     i = 0
+    best_result = None
+    best_accuracy = 0
+    best_output = None
+
     while response.choices[0].finish_reason != "stop":
         choice = response.choices[0]
         if choice.finish_reason == "tool_calls":
@@ -121,29 +126,21 @@ def run_model_agent(dataset_path: str, target_column: str, dataset_name: str):
 
             if function_call.name == "train_random_forest":
                 X_proc, y_proc, pipeline = preprocess_data(X, y, "RandomForest")
-                config = {
-                    "algorithm": "RandomForest",
-                    "params": arguments
-                }
+                config = {"algorithm": "RandomForest", "params": arguments}
 
             elif function_call.name == "train_logistic_regression":
                 X_proc, y_proc, pipeline = preprocess_data(X, y, "LogisticRegression")
-                config = {
-                    "algorithm": "LogisticRegression",
-                    "params": arguments
-                }
+                config = {"algorithm": "LogisticRegression", "params": arguments}
 
             elif function_call.name == "train_xgboost":
                 X_proc, y_proc, pipeline = preprocess_data(X, y, "XGBoost")
-                config = {
-                    "algorithm": "XGBoost",
-                    "params": arguments
-                }
+                config = {"algorithm": "XGBoost", "params": arguments}
 
             X_train, X_test, y_train, y_test = train_test_split(
                 X_proc, y_proc, test_size=0.2, random_state=42
             )
 
+            start = time.time()
             results = run_evaluation_agent(
                 X_train=X_train,
                 X_test=X_test,
@@ -152,8 +149,21 @@ def run_model_agent(dataset_path: str, target_column: str, dataset_name: str):
                 model_config=config,
                 dataset_name=dataset_name
             )
+            duration = round(time.time() - start, 3)
 
             print(f"Iteration {i} results: accuracy {results['accuracy']}")
+
+            if results["accuracy"] > best_accuracy:
+                best_accuracy = results["accuracy"]
+                best_result = results
+                best_output = {
+                    "predictions": results["report"]["predicted"] if "predicted" in results["report"] else [],
+                    "truth": y_test.tolist(),
+                    "probabilities": results["report"].get("probabilities", None),
+                    "training_duration": duration,
+                    "accuracy": results["accuracy"],
+                    "llm_reasoning": None  # filled later
+                }
 
             messages.append({
                 "role": "assistant",
@@ -180,7 +190,7 @@ def run_model_agent(dataset_path: str, target_column: str, dataset_name: str):
                 tools=tools,
                 tool_choice="auto"
             )
-
             i += 1
 
-    return response.choices[0].message.content
+    best_output["llm_reasoning"] = response.choices[0].message.content
+    return best_output

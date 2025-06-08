@@ -22,7 +22,7 @@ def main():
     result = run_model_agent(dataset_path, target_column, dataset_name)
 
     print()
-    print(result)
+    print(result['llm_reasoning'])
 
 if __name__ == "__main__":
     main()
