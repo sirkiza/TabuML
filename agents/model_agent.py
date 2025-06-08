@@ -87,24 +87,26 @@ tools = [
         }
     ]
 
-def run_model_agent():
+def run_model_agent(dataset_path: str, target_column: str, dataset_name: str):
     messages = [
-        {"role": "system", "content": "You are a machine learning assistant that helps to train machine learning models."},
-        {"role": "user", "content": "Please train a model on an income dataset data/adult.csv. Try to pick different parameters to maximize accuracy (desired accuracy is above 88%). Output the final result as a formatted table and add reasoning behind your choices. Make at least 10 iterations but not more than 20 iterations"} 
+        {
+            "role": "system",
+            "content": "You are a machine learning assistant that helps to train machine learning models."
+        },
+        {
+            "role": "user",
+            "content": f"Please train a model on dataset at {dataset_path}. Try to pick different parameters to maximize accuracy. Output the final result as a formatted table and add reasoning behind your choices. Make at least 10 iterations but not more than 20 iterations."
+        }
     ]
-    
+
     client = OpenAI()
     response = client.chat.completions.create(
-        model="o4-mini",  # Must support function calling
+        model="o4-mini",
         messages=messages,
         tools=tools,
         tool_choice="auto"
     )
 
-    dataset_path = "data/adult.csv"
-    target_column = "income"
-    dataset_name = "adult"
-    
     i = 0
     while response.choices[0].finish_reason != "stop":
         choice = response.choices[0]
@@ -112,55 +114,36 @@ def run_model_agent():
             function_call = choice.message.tool_calls[0].function
             call_id = choice.message.tool_calls[0].id
             arguments = json.loads(function_call.arguments)
-            print(f"Iteration {i}: calling function {function_call.name} with arguments {function_call.arguments}")
-            
-            # Step 1: Load dataset
-            X, y, meta = load_dataset(dataset_path, target_column)
-            
-            if function_call.name == "train_random_forest":
-                # Step 2: Preprocess (model-aware)
-                X_proc, y_proc, pipeline = preprocess_data(X, y, "RandomForest")
-                
-                config = {
-                        "algorithm": "RandomForest",
-                        "params": {
-                            "n_estimators": arguments["n_estimators"],
-                            "max_depth": arguments["max_depth"]
-                        }
-                    }
 
-                
-            if function_call.name == "train_logistic_regression":
-                # Step 2: Preprocess (model-aware)
+            print(f"Iteration {i}: calling function {function_call.name} with arguments {arguments}")
+
+            X, y, meta = load_dataset(dataset_path, target_column)
+
+            if function_call.name == "train_random_forest":
+                X_proc, y_proc, pipeline = preprocess_data(X, y, "RandomForest")
+                config = {
+                    "algorithm": "RandomForest",
+                    "params": arguments
+                }
+
+            elif function_call.name == "train_logistic_regression":
                 X_proc, y_proc, pipeline = preprocess_data(X, y, "LogisticRegression")
-                
                 config = {
-                        "algorithm": "LogisticRegression",
-                        "params": {
-                            "penalty": arguments["penalty"],
-                            "max_iter": arguments["max_iter"],
-                            "solver": arguments["solver"]
-                        }
-                    }
-            if function_call.name == "train_xgboost":
-                # Step 2: Preprocess (model-aware)
+                    "algorithm": "LogisticRegression",
+                    "params": arguments
+                }
+
+            elif function_call.name == "train_xgboost":
                 X_proc, y_proc, pipeline = preprocess_data(X, y, "XGBoost")
-                
                 config = {
-                        "algorithm": "XGBoost",
-                        "params": {
-                            "n_estimators": arguments["n_estimators"],
-                            "learning_rate": arguments["learning_rate"],
-                            "max_depth": arguments["max_depth"],
-                            "subsample": arguments["subsample"]
-                        }
-                    }
-            
+                    "algorithm": "XGBoost",
+                    "params": arguments
+                }
+
             X_train, X_test, y_train, y_test = train_test_split(
                 X_proc, y_proc, test_size=0.2, random_state=42
             )
-                
-            # Step 3: Evaluate
+
             results = run_evaluation_agent(
                 X_train=X_train,
                 X_test=X_test,
@@ -169,11 +152,10 @@ def run_model_agent():
                 model_config=config,
                 dataset_name=dataset_name
             )
-            
+
             print(f"Iteration {i} results: accuracy {results['accuracy']}")
 
-            messages.append(
-            {
+            messages.append({
                 "role": "assistant",
                 "tool_calls": [
                     {
@@ -181,27 +163,24 @@ def run_model_agent():
                         "type": "function",
                         "function": {
                             "name": function_call.name,
-                            "arguments": function_call.arguments
+                            "arguments": json.dumps(arguments)
                         }
                     }
                 ]
-            }
-            )
+            })
             messages.append({
                 "role": "tool",
                 "tool_call_id": call_id,
                 "content": json.dumps(results)
             })
-            
+
             response = client.chat.completions.create(
-                model="o4-mini",  # Must support function calling
+                model="o4-mini",
                 messages=messages,
                 tools=tools,
                 tool_choice="auto"
             )
-            
+
             i += 1
-                
+
     return response.choices[0].message.content
-    
-    

@@ -9,8 +9,18 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
 def main():
-    result = run_model_agent()
-    
+    import sys
+
+    if len(sys.argv) != 3:
+        print("Usage: python main.py <dataset_path> <target_column>")
+        return
+
+    dataset_path = sys.argv[1]
+    target_column = sys.argv[2]
+    dataset_name = dataset_path.split("/")[-1].split(".")[0]
+
+    result = run_model_agent(dataset_path, target_column, dataset_name)
+
     print()
     print(result)
 
