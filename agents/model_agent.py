@@ -88,18 +88,26 @@ tools = [
         }
     ]
 
-def run_model_agent(dataset_path: str, target_column: str, dataset_name: str):
+def run_model_agent(dataset_path, target_column, dataset_name):
+    system_prompt = (
+        "You are a machine-learning assistant. "
+        "Try to explore the hyperparameter space and maximize validation accuracy. "
+        "Use at least 10 but not more than 20 trials."
+    )
+
     messages = [
-        {
-            "role": "system",
-            "content": "You are a machine learning assistant that helps to train machine learning models."
-        },
+        {"role": "system", "content": system_prompt},
         {
             "role": "user",
-            "content": f"Please train a model on dataset at {dataset_path}. Try to pick different parameters to maximize accuracy. Output the final result as a formatted table and add reasoning behind your choices. Make at least 10 iterations but not more than 20 iterations."
-        }
+            "content": (
+                f"Dataset path: {dataset_path}\n"
+                f"Target column: {target_column}\n"
+                f"Please begin hyper-parameter exploration."
+            ),
+        },
     ]
 
+    from openai import OpenAI
     client = OpenAI()
     response = client.chat.completions.create(
         model="o4-mini",
@@ -108,89 +116,82 @@ def run_model_agent(dataset_path: str, target_column: str, dataset_name: str):
         tool_choice="auto"
     )
 
-    i = 0
-    best_result = None
-    best_accuracy = 0
+    best_accuracy = -1
     best_output = None
+    iteration = 0
 
     while response.choices[0].finish_reason != "stop":
         choice = response.choices[0]
-        if choice.finish_reason == "tool_calls":
-            function_call = choice.message.tool_calls[0].function
-            call_id = choice.message.tool_calls[0].id
-            arguments = json.loads(function_call.arguments)
+        if choice.finish_reason != "tool_calls":
+            break
 
-            print(f"Iteration {i}: calling function {function_call.name} with arguments {arguments}")
+        call = choice.message.tool_calls[0]
+        func_name = call.function.name
+        args = json.loads(call.function.arguments)
+        call_id = call.id
 
-            X, y, meta = load_dataset(dataset_path, target_column)
+        print(f"Iteration {iteration}: {func_name}  params={args}")
 
-            if function_call.name == "train_random_forest":
-                X_proc, y_proc, pipeline = preprocess_data(X, y, "RandomForest")
-                config = {"algorithm": "RandomForest", "params": arguments}
+        X, y, _ = load_dataset(dataset_path, target_column)
 
-            elif function_call.name == "train_logistic_regression":
-                X_proc, y_proc, pipeline = preprocess_data(X, y, "LogisticRegression")
-                config = {"algorithm": "LogisticRegression", "params": arguments}
+        if func_name == "train_random_forest":
+            model_type = "RandomForest"
+        elif func_name == "train_logistic_regression":
+            model_type = "LogisticRegression"
+        elif func_name == "train_xgboost":
+            model_type = "XGBoost"
+        else:
+            print(f"[Warning] Unsupported function {func_name}")
+            continue
 
-            elif function_call.name == "train_xgboost":
-                X_proc, y_proc, pipeline = preprocess_data(X, y, "XGBoost")
-                config = {"algorithm": "XGBoost", "params": arguments}
+        X_proc, y_proc, _ = preprocess_data(X, y, model_type)
+        X_train, X_test, y_train, y_test = train_test_split(X_proc, y_proc, test_size=0.2, random_state=42)
+        model_config = {"algorithm": model_type, "params": args}
+        result_dict = run_evaluation_agent(X_train, X_test, y_train, y_test, model_config, dataset_name=dataset_name)
 
-            X_train, X_test, y_train, y_test = train_test_split(
-                X_proc, y_proc, test_size=0.2, random_state=42
-            )
+        acc = result_dict["accuracy"]
+        print(f"→ accuracy={acc:.4f}")
 
-            start = time.time()
-            results = run_evaluation_agent(
-                X_train=X_train,
-                X_test=X_test,
-                y_train=y_train,
-                y_test=y_test,
-                model_config=config,
-                dataset_name=dataset_name
-            )
-            duration = round(time.time() - start, 3)
+        if len(result_dict["predictions"]) == len(y_test) and acc > best_accuracy:
+            best_accuracy = acc
+            best_output = {
+                "predictions": list(result_dict["predictions"]),
+                "truth": y_test.tolist(),
+                "probabilities": result_dict.get("probabilities"),
+                "probabilities_labels": result_dict.get("probabilities_labels"),
+                "training_duration": result_dict.get("train_time_sec", 0.0),
+                "accuracy": acc,
+                "llm_reasoning": None,
+            }
 
-            print(f"Iteration {i} results: accuracy {results['accuracy']}")
-
-            if results["accuracy"] > best_accuracy:
-                best_accuracy = results["accuracy"]
-                best_result = results
-                best_output = {
-                    "predictions": results["report"]["predicted"] if "predicted" in results["report"] else [],
-                    "truth": y_test.tolist(),
-                    "probabilities": results["report"].get("probabilities", None),
-                    "training_duration": duration,
-                    "accuracy": results["accuracy"],
-                    "llm_reasoning": None  # filled later
-                }
-
-            messages.append({
+        messages += [
+            {
                 "role": "assistant",
-                "tool_calls": [
-                    {
-                        "id": call_id,
-                        "type": "function",
-                        "function": {
-                            "name": function_call.name,
-                            "arguments": json.dumps(arguments)
-                        }
+                "tool_calls": [{
+                    "id": call_id,
+                    "type": "function",
+                    "function": {
+                        "name": func_name,
+                        "arguments": json.dumps(args)
                     }
-                ]
-            })
-            messages.append({
+                }]
+            },
+            {
                 "role": "tool",
                 "tool_call_id": call_id,
-                "content": json.dumps(results)
-            })
+                "content": json.dumps(result_dict)
+            }
+        ]
 
-            response = client.chat.completions.create(
-                model="o4-mini",
-                messages=messages,
-                tools=tools,
-                tool_choice="auto"
-            )
-            i += 1
+        response = client.chat.completions.create(
+            model="o4-mini",
+            messages=messages,
+            tools=tools,
+            tool_choice="auto"
+        )
+        iteration += 1
 
-    best_output["llm_reasoning"] = response.choices[0].message.content
+    if best_output:
+        best_output["llm_reasoning"] = response.choices[0].message.content
+
     return best_output
