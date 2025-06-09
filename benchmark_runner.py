@@ -1,7 +1,7 @@
 import pandas as pd
-from evaluation.dataset_loader import load_dataset
-from evaluation.data_preprocessor import preprocess_data
-from evaluation.evaluation_agent import run_evaluation_agent
+from tools.dataset_loader import load_dataset
+from tools.data_preprocessor import preprocess_data
+from agents.evaluation_agent import run_evaluation_agent
 
 # List of datasets to run (extend as needed)
 DATASETS = [

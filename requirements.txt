@@ -85,3 +85,8 @@ typing-inspection==0.4.1
     # via pydantic
 xgboost==1.7.6
     # via -r requirements.in
+
+
+fastapi
+uvicorn
+websockets
