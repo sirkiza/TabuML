@@ -4,14 +4,13 @@ from sklearn.impute import SimpleImputer
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 
-
 def preprocess_data(X: pd.DataFrame, y, model_type: str):
     """
     Preprocesses X and y based on model type.
     Returns: transformed X, transformed y, and the fitted preprocessing pipeline.
     """
     categorical_cols = X.select_dtypes(include=['object', 'category']).columns.tolist()
-    numerical_cols = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    numerical_cols = X.select_dtypes(include=['number']).columns.tolist()
 
     # Define imputers
     cat_imputer = SimpleImputer(strategy="most_frequent")
@@ -46,6 +45,12 @@ def preprocess_data(X: pd.DataFrame, y, model_type: str):
         ])
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
+
+    # Check if we have at least one valid transformer
+    if not numerical_cols and not categorical_cols:
+        print(f"[Preprocessing Debug] No usable columns found in X:\n{X.head()}")
+        print(f"[Preprocessing Debug] Dtypes:\n{X.dtypes}")
+        raise ValueError("No valid feature transformers could be created. Check if input DataFrame has usable columns.")
 
     # Fit and transform features
     X_processed = preprocessor.fit_transform(X)

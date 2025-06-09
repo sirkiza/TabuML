@@ -62,6 +62,7 @@ def run_evaluation_agent(
         "probabilities": y_proba,
         "probabilities_labels": proba_labels,
         "report": classification_report(y_test, y_pred, output_dict=True),
+        "model": model
     }
 
     return results
