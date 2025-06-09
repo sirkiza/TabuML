@@ -1,40 +1,42 @@
 import json
+from tools.dataset_loader import load_dataset
 
 
 ROLE_PROMPT = """
     You are a machine learning assistant named TabuML that helps to train machine learning models with AutoML for tabular data classification. 
-    Your task is to understand the user requirements and make sure that the user prompt has all required details,
-    such as dataset url (local path in the filesystem), desired accuracy and number of AutoML iterations. Ask user questions if any details are
-    missing. After you are satisfied with the result, return the final prompt which contains all required information.
-    Don't ask for too many details unless required.
+    Your task is loading and data preprocessing of a dataset. You will be given tools to load the dataset and execute the preprocessing.
 """
 
 tools = [
     {
         "type": "function",
         "function": {
-                "name": "ask_user",
-                "description": "Ask user for additional details.",
+                "name": "load_dataset",
+                "description": "Load dataset from local filesystem.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "question": {
+                        "path": {
                             "type": "string",
-                            "description": "Question to ask the user formatted as HTML"
+                            "description": "path of the dataset file in local filesystem"
+                        },
+                        "target": {
+                            "type": "string",
+                            "description": "target column"
                         }
                     },
-                    "required": ["question"]
+                    "required": ["path", "target"]
                 }
         }
     }
 ]
 
 
-async def run_prompt_agent(client, chat):
-    print("Running prompt agent")
-    
+async def run_data_processing_agent(client, chat, user_prompt):
+    print("Running data processing agent")
     messages = [
-        {"role": "system", "content": ROLE_PROMPT}
+        {"role": "system", "content": ROLE_PROMPT},
+        {"role": "user", "content": user_prompt}
     ]
 
     response = client.chat.completions.create(
@@ -44,6 +46,8 @@ async def run_prompt_agent(client, chat):
         tool_choice="auto"
     )
 
+    X, y = None, None
+
     while response.choices[0].finish_reason != "stop":
         choice = response.choices[0]
         if choice.finish_reason == "tool_calls":
@@ -51,9 +55,10 @@ async def run_prompt_agent(client, chat):
             call_id = choice.message.tool_calls[0].id
             arguments = json.loads(function_call.arguments)
 
-            if function_call.name == "ask_user":
-                await chat.ask_question(arguments["question"])
-                user_response = await chat.input()
+            if function_call.name == "load_dataset":
+                X, y, metadata = load_dataset(
+                    arguments['path'], arguments['target'])
+                await chat.dataset_metadata(metadata)
                 messages.append(
                     {
                         "role": "assistant",
@@ -72,7 +77,7 @@ async def run_prompt_agent(client, chat):
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call_id,
-                    "content": json.dumps(user_response)
+                    "content": "Loaded successfully"
                 })
 
                 response = client.chat.completions.create(
@@ -81,7 +86,7 @@ async def run_prompt_agent(client, chat):
                     tools=tools,
                     tool_choice="auto"
                 )
+    
+    print("Data processing agent finished")
 
-    print("Prompt agent finished")
-
-    return response.choices[0].message.content
+    return X, y
